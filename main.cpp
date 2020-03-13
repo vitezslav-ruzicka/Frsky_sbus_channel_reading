@@ -1,174 +1,74 @@
-#include <iostream>
-#include <string.h>
-using namespace std;
+#include "mbed.h"
 
-class SBUS {
+/*
+*   TO DO LIST:
+*   1. make the get_channel_values function to work
+*   2. separete the flags from channels
+*   3. add more security to the program
+*   4. test
+*/
 
-public:
-    int receiverBuffer[25];
+//#define ALL_CHANNELS
+#define SBUS_SIGNAL_OK          0x00
+#define SBUS_SIGNAL_LOST        0x01
+#define SBUS_SIGNAL_FAILSAFE    0x03
 
-    void read_buffer (char buffer[])
-    {
-        //converts and saves the buffer to internal one
-        for (int i =0; i < 25; i++)
-        {
-            receiverBuffer[i] = (int)buffer[i];
-        }
+Serial sbus(NC, PB_11);
+Serial pc(PA_9, PA_10);
+
+//not tested
+void get_channel_values (uint8_t *channels, uint8_t *failsafe_status, char buffer[])
+{
+    //get the value from channels
+    channels[0]  = ((buffer[1]|buffer[2]<< 8) & 0x07FF);
+    channels[1]  = ((buffer[2]>>3|buffer[3]<<5) & 0x07FF);
+    channels[2]  = ((buffer[3]>>6|buffer[4]<<2|buffer[5]<<10) & 0x07FF);
+    channels[3]  = ((buffer[5]>>1|buffer[6]<<7) & 0x07FF);
+    channels[4]  = ((buffer[6]>>4|buffer[7]<<4) & 0x07FF);
+    channels[5]  = ((buffer[7]>>7|buffer[8]<<1|buffer[9]<<9) & 0x07FF);
+    channels[6]  = ((buffer[9]>>2|buffer[10]<<6) & 0x07FF);
+    channels[7]  = ((buffer[10]>>5|buffer[11]<<3) & 0x07FF);
+#ifdef ALL_CHANNELS
+    channels[8]  = ((buffer[12]|buffer[13]<< 8) & 0x07FF);
+    channels[9]  = ((buffer[13]>>3|buffer[14]<<5) & 0x07FF);
+    channels[10] = ((buffer[14]>>6|buffer[15]<<2|buffer[16]<<10) & 0x07FF);
+    channels[11] = ((buffer[16]>>1|buffer[17]<<7) & 0x07FF);
+    channels[12] = ((buffer[17]>>4|buffer[18]<<4) & 0x07FF);
+    channels[13] = ((buffer[18]>>7|buffer[19]<<1|buffer[20]<<9) & 0x07FF);
+    channels[14] = ((buffer[20]>>2|buffer[21]<<6) & 0x07FF);
+    channels[15] = ((buffer[21]>>5|buffer[22]<<3) & 0x07FF);
+#endif
+
+    //check for signal state (signal OK, lost, failsafe)
+    *failsafe_status = SBUS_SIGNAL_OK;
+    if (buffer[23] & (1<<2)) {
+        *failsafe_status = SBUS_SIGNAL_LOST;
+    }
+    if (buffer[23] & (1<<3)) {
+        *failsafe_status = SBUS_SIGNAL_FAILSAFE;
     }
 
-    //should be repeated 12 times 1-13
-    void int8_to_string (int number)
-    {
-        unsigned char help = 128;
-
-        for (int i = 0; i < 8; i++)
-        {
-            if (receiverBuffer[number] & help)
-            {
-                binOut += to_string(1);
-            } else {
-                binOut += to_string(0);
-            }
-            help >>=1;
-        }
-    }
-
-    //enter
-    int channel (int channel)
-    {
-        //only 8 channels are scanned
-        if (channel > 8 || channel < 1)
-        {
-            return -1;
-        }
-
-        return get_channel(channel);
-    }
-
-private:
-    string binOut;
-
-    int get_channel (int pos)
-    {
-        //goes to exact location in the binary array and convert
-        //next 12bits to int
-        // (1 channel is 12bit long but its transmitted by 8bits)
-        string aura = binOut.substr(pos * 12, 12);
-        //convert the binary string to an integer
-        return stoi(aura, 0, 2);
-    }
-};
-
-class receiver {
-
-public:
-    bool flags[2];
-    string binString;
-
-    /*
-     * TO DO:
-     *  1.) get flags
-     *  2.) check for individual packets
-     *  3.) optimize
-     */
-
-    void read_buffer (int receiverBuffer[])
-    {
-        //clears the string -> before cycles were appended to the end of the string
-        //bluepill run out of memory
-        binString.clear();
-        bin_to_string(receiverBuffer);
-    }
-
-    //get the channel
-    int channel(int number)
-    {
-        //number -1 because arrays starts with 0 :)
-        number--;
-
-        //only 8 channels are scanned
-        if (number > 8 || number < 0)
-        {
-            return -1;
-        }
-        //returns the value of selected channel
-        return get_channel(number);
-    }
-
-private:
-    int *binArr;
-
-    //converts 8bit int to binary array
-    int* int8_to_bin (int number)
-    {
-        static int buffer[8];
-        //sets the arr to 0 -> resets the arr
-        memset(buffer, 0, sizeof buffer);
-        int i = 7;
-
-        while (number != 0)
-        {
-            buffer[i] = number % 2;
-            number /= 2;
-            i--;
-        }
-        return buffer;
-    }
-
-    //converts whole raw sbus receiver channel to
-    //one long binary number stored in string
-    string bin_to_string(int receiverBuffer[])
-    {
-        for (int i = 1; i < 13; i++)
-        {
-            //converts the int to the binary arr
-            binArr = int8_to_bin(receiverBuffer[i]);
-            for (int x = 0; x < 8; x++)
-            {
-                //append the binary to one big string dru
-                binString += to_string(*(binArr + x));
-            }
-        }
-        return binString;
-    }
-
-    //cuts the long binary string from previous function
-    //and converts it to integer
-    int get_channel(int pos)
-    {
-        //goes to exact location in the binary array and convert
-        //next 12bits to int
-        // (1 channel is 12bit long but its transmitted by 8bits)
-        string aura = binString.substr(pos * 12, 12);
-        //convert the binary string to an integer
-        return stoi(aura, 0, 2);
-    }
-
-    int get_flags(char receiverBuffer[])
-    {
-        
-    }
-};
+}
 
 int main() {
-    //test receiverBuffer
-    //arr[0] = start bit(240d, F0h, 11110000b)
-    char arr[25] = {20, 15, 43, 34,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,90};
-    int chan;
-    //testing the class
-    SBUS sbus;
+    sbus.format(8, Serial::Even, 2);
+    sbus.baud(100000);
+    pc.baud(115200);
+
+    char buffer[25];
+    uint8_t channels[18];
+    uint8_t failsave_status;
+    int i;
 
     while (1)
     {
-        sbus.read_buffer(arr);
-
-        for (int i = 1; i < 13; i++)
-        {
-            sbus.int8_to_string(i);
-        }
-
-        chan = sbus.channel(1);
-        printf("%d \n", chan);
+        sbus.gets(buffer, 25);
+        pc.printf("%d   ",((buffer[1]|buffer[2]<< 8) & 0x07FF));
+        pc.printf("%d   ",((buffer[2]>>3|buffer[3]<<5) & 0x07FF));
+        pc.printf("%d   ",((buffer[3]>>6|buffer[4]<<2|buffer[5]<<10) & 0x07FF));
+        pc.printf("%d   ", ((buffer[5]>>1|buffer[6]<<7) & 0x07FF));
+        pc.puts("\n");
+        wait_ms(100);
     }
-    return 0;
+
 }
